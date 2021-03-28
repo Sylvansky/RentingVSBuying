@@ -1,0 +1,133 @@
+---
+title: "Beating Keightley"
+output: html_notebook
+---
+
+This NoteBook is to look at beating our current rental situation
+
+# Libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+
+# Parameters
+
+```{r}
+House_Price <- 700000
+
+Current_Rent <- 680
+
+Deposit <- 100000
+
+Max_Weekly_Repayment <- 700
+
+```
+
+# Functions
+```{r}
+Transaction_Cost <- function(price) {
+  MortgageRegistration <- 178.20
+  LandTransferFee <- 178.20
+  
+  if (price > 85000 & price < 120000){
+    LandTransferFee <- 188.2
+  }else{
+    LandTransferFee <- 188.2 + floor(price / 100000)*20
+  }
+  
+  StampDuty <- 0
+  
+  if (price > 430000 & price < 530000) {
+    StampDuty = 19.19 * (price-430000)/100
+  } else if (price > 530000 & price < 750000) {
+    StampDuty = 11115 + 4.75*(price-360000)/100 
+  } else {
+    StampDuty = 28453 + 5.15*(price-725000)/100
+  }
+  
+  tax = MortgageRegistration + LandTransferFee + StampDuty
+  
+  return(tax)
+}
+
+TrueDeposit <- function(price,deposit){
+  return (deposit - Transaction_Cost(price))
+}
+
+LoanValueRatio <- function(price,deposit){
+  return((price-TrueDeposit(price,deposit))/price)
+}
+
+LenderMortgageInsurance <- function(price,deposit){
+  lvr <- round(LoanValueRatio(price,deposit),digits = 2)
+  LMI_rate <- 0
+  rates <- read.csv('LMI_RATES.CSV')
+  wa_stamp_duty <- 0.1
+  GST <- 0.1
+  
+  if(lvr > 0.8) {
+    LMI_rate <- case_when(
+      price <= 300000 ~ rates %>% filter(LVR == lvr) %>% select(X0) %>% pull(),
+      price > 300000 & price <= 500000 ~ rates %>% filter(LVR == lvr) %>% select(X300000) %>% pull(),
+      price > 500000 & price <= 600000 ~ rates %>% filter(LVR == lvr) %>% select(X500000) %>% pull(),
+      price > 600000 & price <= 750000 ~ rates %>% filter(LVR == lvr) %>% select(X600000) %>% pull(),
+      TRUE ~ rates %>% filter(LVR == lvr) %>% select(X750000) %>% pull()
+    )
+  }
+  LMI <- price*LMI_rate
+  LMI_Net <- LMI + LMI*wa_stamp_duty
+  LMI_FINAL <- LMI_Net + LMI_Net*GST
+  return(LMI_FINAL)
+}
+
+TrueMortgageValue <- function(price,deposit){
+  return(price - TrueDeposit(price,deposit) + LenderMortgageInsurance(price,deposit))
+}
+
+TotalInterests <- function(value,rate,term){
+  return(value*rate*(term/12))
+}
+
+MinMonthlyRepayment <- function(value,rate,term){
+  return((value + TotalInterests(value,rate,term))/term)
+}
+
+PrincipalMonthlyRepayment <-  function(value,term){
+  return(value/term)
+}
+
+InterestMonthlyRepayment <- function(value,rate,term){
+  return(MinMonthlyRepayment(value,rate,term)-PrincipalMonthlyRepayment(value,term))
+}
+
+MortgageCost <- function(value,rate,MaxMonthlyRepayment,term){
+  Costs <- data.frame(0,0,value)
+  names(Costs)<-c("Date","Cost","Principal")
+  mortgage <- value
+  timeleft <- term*12
+  time <- 0
+  cost <- 0
+  while (mortgage > 0){
+    if(MaxMonthlyRepayment < MinMonthlyRepayment(mortgage,rate,timeleft)) stop('Monthly Repayments do not meet minimum requierements')
+    mortgage <- mortgage - (MaxMonthlyRepayment - InterestMonthlyRepayment(mortgage,rate,timeleft))
+    cost <- InterestMonthlyRepayment(mortgage,rate,timeleft)
+    timeleft <-  timeleft - 1
+    time <- time +1
+    monthly_cost <- data.frame(time,cost,mortgage)
+    names(monthly_cost)<-c("Date","Cost","Principal")
+    Costs <- rbind(Costs,monthly_cost)
+  }
+  return(Costs)
+}
+
+```
+
+# Plots
+```{r}
+ggplot(myMortgage,aes(Date,Principal)) +
+  geom_line()
+
+```
+
