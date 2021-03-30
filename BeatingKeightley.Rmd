@@ -10,21 +10,6 @@ This NoteBook is to look at beating our current rental situation
 library(dplyr)
 library(ggplot2)
 ```
-
-
-# Parameters
-
-```{r}
-House_Price <- 700000
-
-Current_Rent <- 680
-
-Deposit <- 100000
-
-Max_Weekly_Repayment <- 700
-
-```
-
 # Functions
 ```{r}
 Transaction_Cost <- function(price) {
@@ -43,7 +28,7 @@ Transaction_Cost <- function(price) {
     StampDuty = 19.19 * (price-430000)/100
   } else if (price > 530000 & price < 750000) {
     StampDuty = 11115 + 4.75*(price-360000)/100 
-  } else {
+  } else if (price >= 750000) {
     StampDuty = 28453 + 5.15*(price-725000)/100
   }
   
@@ -122,12 +107,73 @@ MortgageCost <- function(value,rate,MaxMonthlyRepayment,term){
   return(Costs)
 }
 
+Depreciation <- function(value,rate){
+  return(value*rate)
+}
+
+Maintenance <- function(value,rate,time){
+  return(value*rate*time)
+}
+
+SalesAgentCost <- function(value){
+  return(value * 0.03)
+}
+
+BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate){
+  myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
+  MaxOwnershipTime <- max(myMortgage$Date)/12
+  OwnershipTime <- 1
+  WeeklyCost <- data.frame(0,0,'Yes')
+  names(WeeklyCost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
+  
+  while (OwnershipTime <= MaxOwnershipTime){
+    myMortgage_short <- myMortgage %>% filter(Date < OwnershipTime*12)
+    Total_Cost <- sum(myMortgage_short$Cost) +
+                  Transaction_Cost(House_Price) +
+                  Depreciation(House_Price,HousePriceVariation) + 
+                  Maintenance(House_Price,MaintenanceRate,OwnershipTime) +
+                  SalesAgentCost(House_Price - Depreciation(House_Price,HousePriceVariation)) +
+                  Council_Rate
+                  
+    CostsAsWeeklyRent <-  Total_Cost/(OwnershipTime*12*4)
+    
+    MoreExpensive <- if(CostsAsWeeklyRent<Current_Rent){'No'} else{'Yes'} 
+    
+    weekly_cost <- data.frame(OwnershipTime,CostsAsWeeklyRent,MoreExpensive)
+    names(weekly_cost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
+    
+    WeeklyCost <- rbind(WeeklyCost,weekly_cost)
+    
+    OwnershipTime = OwnershipTime + 1
+    
+  }
+  
+  ggplot(WeeklyCost %>% filter(Year > 0),aes(Year,CostsAsWeeklyRent,fill = MoreExpensiveThenCurrentRent)) +geom_col()
+}
+
 ```
 
-# Plots
+# Run The Model
+
 ```{r}
-ggplot(myMortgage,aes(Date,Principal)) +
-  geom_line()
+House_Price <- 600000
+
+Current_Rent <- 680
+
+Deposit <- 135000
+
+Max_Monthly_Repayment <- 4000
+
+Rate <- 0.04
+
+Term <- 30
+
+Council_Rate <- 1000
+
+HousePriceVariation <- 0.01
+
+MaintenanceRate <- 0.01
+
+BuyingVSRenting(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate)
 
 ```
-
