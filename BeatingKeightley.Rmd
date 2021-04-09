@@ -48,7 +48,7 @@ LoanValueRatio <- function(price,deposit){
 LenderMortgageInsurance <- function(price,deposit){
   lvr <- round(LoanValueRatio(price,deposit),digits = 2)
   LMI_rate <- 0
-  rates <- read.csv('LMI_RATES.CSV')
+  rates <- read.csv('LMI_RATES.csv')
   wa_stamp_duty <- 0.1
   GST <- 0.1
   
@@ -119,7 +119,7 @@ SalesAgentCost <- function(value){
   return(value * 0.03)
 }
 
-BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate){
+BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates){
   myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
   MaxOwnershipTime <- max(myMortgage$Date)/12
   OwnershipTime <- 1
@@ -133,11 +133,11 @@ BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,
                   Depreciation(House_Price,HousePriceVariation) + 
                   Maintenance(House_Price,MaintenanceRate,OwnershipTime) +
                   SalesAgentCost(House_Price - Depreciation(House_Price,HousePriceVariation)) +
-                  Council_Rate
+                  Fixed_Yearly_Rates*OwnershipTime
                   
     CostsAsWeeklyRent <-  Total_Cost/(OwnershipTime*12*4)
     
-    MoreExpensive <- if(CostsAsWeeklyRent<Current_Rent){'No'} else{'Yes'} 
+    MoreExpensive <- if(CostsAsWeeklyRent<Current_Rent) 'No' else 'Yes' 
     
     weekly_cost <- data.frame(OwnershipTime,CostsAsWeeklyRent,MoreExpensive)
     names(weekly_cost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
@@ -168,12 +168,18 @@ Rate <- 0.04
 
 Term <- 30
 
-Council_Rate <- 1000
+Council_Rate <- 1600
+
+Water_Rate <- 1020
+
+Strata <- 0
 
 HousePriceVariation <- 0.01
 
-MaintenanceRate <- 0.01
+MaintenanceRate <-           0.01
 
-BuyingVSRenting(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate)
+Fixed_Yearly_Rates <- Council_Rate + Water_Rate + Strata
+
+BuyingVSRenting(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
 
 ```
