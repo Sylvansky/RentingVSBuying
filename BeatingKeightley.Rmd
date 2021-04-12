@@ -9,6 +9,8 @@ This NoteBook is to look at beating our current rental situation
 ```{r}
 library(dplyr)
 library(ggplot2)
+library(scales)
+library(tidyr)
 ```
 # Functions
 ```{r}
@@ -26,7 +28,7 @@ Transaction_Cost <- function(price) {
   
   if (price > 430000 & price < 530000) {
     StampDuty = 19.19 * (price-430000)/100
-  } else if (price > 530000 & price < 750000) {
+  } else if (price >= 530000 & price < 750000) {
     StampDuty = 11115 + 4.75*(price-360000)/100 
   } else if (price >= 750000) {
     StampDuty = 28453 + 5.15*(price-725000)/100
@@ -87,7 +89,7 @@ InterestMonthlyRepayment <- function(value,rate,term){
   return(MinMonthlyRepayment(value,rate,term)-PrincipalMonthlyRepayment(value,term))
 }
 
-MortgageCost <- function(value,rate,MaxMonthlyRepayment,term){
+MortgageCost <- function(value,rate,Max_Monthly_Repayment,term){
   Costs <- data.frame(0,0,value)
   names(Costs)<-c("Date","Cost","Principal")
   mortgage <- value
@@ -95,8 +97,8 @@ MortgageCost <- function(value,rate,MaxMonthlyRepayment,term){
   time <- 0
   cost <- 0
   while (mortgage > 0){
-    if(MaxMonthlyRepayment < MinMonthlyRepayment(mortgage,rate,timeleft)) stop('Monthly Repayments do not meet minimum requierements')
-    mortgage <- mortgage - (MaxMonthlyRepayment - InterestMonthlyRepayment(mortgage,rate,timeleft))
+    if(Max_Monthly_Repayment < MinMonthlyRepayment(mortgage,rate,timeleft)) stop('Monthly Repayments do not meet minimum requierements')
+    mortgage <- mortgage - (Max_Monthly_Repayment - InterestMonthlyRepayment(mortgage,rate,timeleft))
     cost <- InterestMonthlyRepayment(mortgage,rate,timeleft)
     timeleft <-  timeleft - 1
     time <- time +1
@@ -119,7 +121,13 @@ SalesAgentCost <- function(value){
   return(value * 0.03)
 }
 
-BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates){
+MaximumHousePrice <- function(Deposit,Rate,Max_Monthly_Repayment,Term){
+  housePrice <- 0
+  while (Max_Monthly_Repayment > MinMonthlyRepayment(TrueMortgageValue(housePrice,Deposit),Rate,Term*12)){housePrice <- housePrice + 1000}
+  return(housePrice - 1000)
+ }
+
+MinYearsOfOwnership <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates){
   myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
   MaxOwnershipTime <- max(myMortgage$Date)/12
   OwnershipTime <- 1
@@ -148,16 +156,72 @@ BuyingVSRenting <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,
     
   }
   
-  ggplot(WeeklyCost %>% filter(Year > 0),aes(Year,CostsAsWeeklyRent,fill = MoreExpensiveThenCurrentRent)) +geom_col()
+  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >1) {
+    MinOwnership <- WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No') %>% select(Year) %>% min()
+  }  else if (nrow(WeeklyCost) >1) {
+    MinOwnership <- NA
+  } else {MinOwnership <-  0}
+  
+  return(MinOwnership)
+}
+
+MinYearsOfOwnership_data <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates){
+  myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
+  MaxOwnershipTime <- max(myMortgage$Date)/12
+  OwnershipTime <- 1
+  WeeklyCost <- data.frame(0,0,'Yes')
+  names(WeeklyCost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
+  
+  while (OwnershipTime <= MaxOwnershipTime){
+    myMortgage_short <- myMortgage %>% filter(Date < OwnershipTime*12)
+    Total_Cost <- sum(myMortgage_short$Cost) +
+                  Transaction_Cost(House_Price) +
+                  Depreciation(House_Price,HousePriceVariation) + 
+                  Maintenance(House_Price,MaintenanceRate,OwnershipTime) +
+                  SalesAgentCost(House_Price - Depreciation(House_Price,HousePriceVariation)) +
+                  Fixed_Yearly_Rates*OwnershipTime
+                  
+    CostsAsWeeklyRent <-  Total_Cost/(OwnershipTime*12*4)
+    
+    MoreExpensive <- if(CostsAsWeeklyRent<Current_Rent) 'No' else 'Yes' 
+    
+    weekly_cost <- data.frame(OwnershipTime,CostsAsWeeklyRent,MoreExpensive)
+    names(weekly_cost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
+    
+    WeeklyCost <- rbind(WeeklyCost,weekly_cost)
+    
+    OwnershipTime = OwnershipTime + 1
+    
+  }
+  
+  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >1) {
+    MinOwnership <- WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No') %>% select(Year) %>% min()
+  }  else if (nrow(WeeklyCost) >1) {
+    MinOwnership <- NA
+  } else {MinOwnership <-  0}
+  
+  return(WeeklyCost)
+}
+
+MinYearsOfOwnerships <- function(Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates){
+  OwnershipCutOffs <- data.frame(0,0)
+  names(OwnershipCutOffs)<-c("HousePrice","MinimumYearsOfOwnership")
+  House_Price_Max <- MaximumHousePrice(Deposit,Rate,Max_Monthly_Repayment,Term)
+    
+  for (House_Price in seq(0,House_Price_Max,10000)) {
+    MinOwnership <- MinYearsOfOwnership(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+    ownershipcutoff <- data.frame(House_Price,MinOwnership)
+    names(ownershipcutoff)<-c("HousePrice","MinimumYearsOfOwnership")
+    OwnershipCutOffs <- rbind(OwnershipCutOffs,ownershipcutoff)
+  }
+  return (OwnershipCutOffs)
 }
 
 ```
 
-# Run The Model
+# Fixed Parameters
 
 ```{r}
-House_Price <- 600000
-
 Current_Rent <- 680
 
 Deposit <- 135000
@@ -168,18 +232,78 @@ Rate <- 0.04
 
 Term <- 30
 
-Council_Rate <- 1600
+Council_Rate <- 2000
 
-Water_Rate <- 1020
+Water_Rate <- 2000
 
-Strata <- 0
+Strata <- 2000
 
-HousePriceVariation <- 0.01
+HousePriceVariation <- 0.1
 
-MaintenanceRate <-           0.01
+MaintenanceRate <- 0.01
 
 Fixed_Yearly_Rates <- Council_Rate + Water_Rate + Strata
 
-BuyingVSRenting(House_Price,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+```
 
+# Single Case
+
+```{r}
+PropertyPrice <- 450000
+
+WeeklyCost <- MinYearsOfOwnership_data(PropertyPrice,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+
+ggplot(WeeklyCost %>% filter(Year > 0),aes(Year,CostsAsWeeklyRent,fill = MoreExpensiveThenCurrentRent)) + geom_col()
+```
+
+
+# Repayment Sensibility
+```{r}
+OwnershipCutOffs <- data.frame(NA,NA,NA)
+names(OwnershipCutOffs)<-c("HousePrice","MinimumYearsOfOwnership","MonthlyRepayment")
+
+for (monthly_repayment in seq(3000,7000,250)){
+  ownershipcutoffs <- MinYearsOfOwnerships(Deposit,Rate,monthly_repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+  ownershipcutoffs$MonthlyRepayment <- monthly_repayment
+  OwnershipCutOffs <- rbind(OwnershipCutOffs,ownershipcutoffs)
+  OwnershipCutOffs <- OwnershipCutOffs %>% drop_na()
+}
+
+OwnershipCutOffs$MonthlyRepayment <- as.factor(OwnershipCutOffs$MonthlyRepayment)
+
+ggplot(OwnershipCutOffs,aes(HousePrice,MinimumYearsOfOwnership, color = MonthlyRepayment)) +
+    geom_line() +
+    scale_color_viridis_d() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    ggtitle('Minimum years of property ownership to beat current rental costs') +
+    xlab('House Price') +
+    ylab('Years') +
+    scale_x_continuous(breaks = breaks_width(50000),labels=label_comma())+
+    scale_y_continuous(breaks = breaks_width(1))
+```
+# Rate Sensibility
+```{r}
+OwnershipCutOffs <- data.frame(NA,NA,NA)
+names(OwnershipCutOffs)<-c("HousePrice","MinimumYearsOfOwnership","Rate")
+
+for (rate in seq(0.02,0.04,0.002)){
+  ownershipcutoffs <- MinYearsOfOwnerships(Deposit,rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+  ownershipcutoffs$Rate <- rate
+  OwnershipCutOffs <- rbind(OwnershipCutOffs,ownershipcutoffs)
+  OwnershipCutOffs <- OwnershipCutOffs %>% drop_na()
+}
+
+OwnershipCutOffs$Rate <- as.factor(OwnershipCutOffs$Rate)
+
+ggplot(OwnershipCutOffs,aes(HousePrice,MinimumYearsOfOwnership, color = Rate)) +
+    geom_line() +
+    scale_color_viridis_d() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    ggtitle('Minimum years of property ownership to beat current rental costs') +
+    xlab('House Price') +
+    ylab('Years') +
+    scale_x_continuous(breaks = breaks_width(50000),labels=label_comma())+
+    scale_y_continuous(breaks = breaks_width(1))
 ```
