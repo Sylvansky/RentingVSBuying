@@ -7,10 +7,12 @@ This NoteBook is to look at beating our current rental situation
 
 # Libraries
 ```{r}
-library(dplyr)
+
 library(ggplot2)
 library(scales)
 library(tidyr)
+library(purrr)
+library(dplyr)
 ```
 # Functions
 ```{r}
@@ -131,7 +133,7 @@ MinYearsOfOwnership <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,T
   myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
   MaxOwnershipTime <- max(myMortgage$Date)/12
   OwnershipTime <- 1
-  WeeklyCost <- data.frame(0,0,'Yes')
+  WeeklyCost <- data.frame(NA,NA,NA)
   names(WeeklyCost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
   
   while (OwnershipTime <= MaxOwnershipTime){
@@ -156,10 +158,12 @@ MinYearsOfOwnership <- function(House_Price,Deposit,Rate,Max_Monthly_Repayment,T
     
   }
   
-  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >1) {
+  WeeklyCost <- WeeklyCost %>% drop_na()
+  
+  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >=1) {
     MinOwnership <- WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No') %>% select(Year) %>% min()
-  }  else if (nrow(WeeklyCost) >1) {
-    MinOwnership <- NA
+  }  else if (nrow(WeeklyCost) > 1) {
+    MinOwnership <- WeeklyCost %>% select(Year) %>% max()
   } else {MinOwnership <-  0}
   
   return(MinOwnership)
@@ -169,7 +173,7 @@ MinYearsOfOwnership_data <- function(House_Price,Deposit,Rate,Max_Monthly_Repaym
   myMortgage <- MortgageCost(TrueMortgageValue(House_Price,Deposit),Rate,Max_Monthly_Repayment,Term)
   MaxOwnershipTime <- max(myMortgage$Date)/12
   OwnershipTime <- 1
-  WeeklyCost <- data.frame(0,0,'Yes')
+  WeeklyCost <- data.frame(NA,NA,NA)
   names(WeeklyCost)<-c("Year","CostsAsWeeklyRent","MoreExpensiveThenCurrentRent")
   
   while (OwnershipTime <= MaxOwnershipTime){
@@ -194,10 +198,12 @@ MinYearsOfOwnership_data <- function(House_Price,Deposit,Rate,Max_Monthly_Repaym
     
   }
   
-  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >1) {
+  WeeklyCost <- WeeklyCost %>% drop_na()
+  
+  if(nrow(WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No')) >= 1) {
     MinOwnership <- WeeklyCost %>% filter(MoreExpensiveThenCurrentRent == 'No') %>% select(Year) %>% min()
   }  else if (nrow(WeeklyCost) >1) {
-    MinOwnership <- NA
+    MinOwnership <- WeeklyCost %>% select(Year) %>% max()
   } else {MinOwnership <-  0}
   
   return(WeeklyCost)
@@ -251,11 +257,46 @@ Fixed_Yearly_Rates <- Council_Rate + Water_Rate + Strata
 ```{r}
 PropertyPrice <- 450000
 
-WeeklyCost <- MinYearsOfOwnership_data(PropertyPrice,Deposit,Rate,Max_Monthly_Repayment,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
+WeeklyCost <- MinYearsOfOwnership_data(PropertyPrice,Deposit,0.03,5000,Term,HousePriceVariation,MaintenanceRate,Fixed_Yearly_Rates)
 
 ggplot(WeeklyCost %>% filter(Year > 0),aes(Year,CostsAsWeeklyRent,fill = MoreExpensiveThenCurrentRent)) + geom_col()
 ```
+# The Nolan Scenario
+```{r}
+House_Price = 450000
 
+Nolan <- data.frame(NA,NA,NA)
+names(Nolan)<-c("MonthlyRepayments","MortGageRates","MinOwnerShip_Years")
+
+for (monthly_repayment in seq(3000,7000,250)){
+  nolan <- as.data.frame(list("MortGageRates" = seq(0.02,0.05,0.005)))
+  nolan$MonthlyRepayments <- monthly_repayment
+  nolan <- nolan %>% mutate(
+    MinOwnerShip_Years =  pmap(., function(MonthlyRepayments,MortGageRates) MinYearsOfOwnership(
+      House_Price,
+      Deposit,
+      Rate = MortGageRates,
+      Max_Monthly_Repayment = MonthlyRepayments,
+      Term,
+      HousePriceVariation,
+      MaintenanceRate,
+      Fixed_Yearly_Rates
+      )
+    )
+  )
+  Nolan <- rbind(Nolan,nolan)
+  Nolan <- Nolan %>% drop_na()
+}
+
+Nolan$MortGageRates <- as.factor(Nolan$MortGageRates)
+Nolan$MonthlyRepayments <- as.factor(Nolan$MonthlyRepayments)
+Nolan$MinOwnerShip_Years <- as.numeric(Nolan$MinOwnerShip_Years)
+
+ggplot(Nolan,aes(MonthlyRepayments,MinOwnerShip_Years, color = MortGageRates)) +
+    geom_point() +
+    scale_color_viridis_d() +
+    theme_minimal() 
+```
 
 # Repayment Sensibility
 ```{r}
